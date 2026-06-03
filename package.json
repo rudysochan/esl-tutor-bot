@@ -2,10 +2,11 @@
   "name": "esl-project",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  },//The "start": "node server.js" line tells Render (and anyone) that starting this app means running node server.js — the same command you run locally. Now npm start becomes a universal shorthand for it.
   "keywords": [],
   "author": "",
   "license": "ISC",
