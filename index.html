@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESL Tutor Bot</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f9f8f6;
+    --surface: #ffffff;
+    --surface2: #f2f0ec;
+    --border: #e2dfd8;
+    --border2: #ccc9c0;
+    --text: #1a1a18;
+    --text2: #6b6860;
+    --text3: #9e9b93;
+    --accent: #2563eb;
+    --accent-bg: #eff6ff;
+    --accent-border: #bfdbfe;
+    --success: #16a34a;
+    --success-bg: #f0fdf4;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  body {
+    font-family: 'Georgia', serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  header {
+    width: 100%;
+    max-width: 1400px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  header h1 {
+    font-size: 22px;
+    font-weight: normal;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  header span {
+    font-size: 13px;
+    color: var(--text3);
+    font-family: 'Courier New', monospace;
+  }
+
+  #main {
+    width: 100%;
+    max-width: 1400px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* Setup panel */
+  #setup-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  #setup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s;
+  }
+
+  #setup-header.open { border-bottom-color: var(--border); }
+
+  #setup-title {
+    font-size: 13px;
+    font-weight: normal;
+    font-family: 'Courier New', monospace;
+    color: var(--text2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #setup-indicator {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--border2);
+    transition: background 0.2s;
+  }
+
+  #setup-indicator.loaded { background: var(--success); }
+
+  #chevron {
+    font-size: 11px;
+    color: var(--text3);
+    transition: transform 0.2s;
+  }
+
+  #chevron.rotated { transform: rotate(180deg); }
+
+  #setup-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  #setup-body.hidden { display: none; }
+
+  label {
+    font-size: 12px;
+    color: var(--text3);
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  textarea {
+    width: 100%;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    resize: vertical;
+  }
+
+  textarea:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+  textarea::placeholder { color: var(--text3); }
+
+  #lesson-input { height: 120px; }
+  #user-input { height: 48px; flex: 1; resize: none; }
+
+  button {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s;
+  }
+
+  #start-btn {
+    padding: 10px 18px;
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    align-self: flex-start;
+  }
+
+  #start-btn:hover { opacity: 0.85; }
+  #start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  #error-bar {
+    font-size: 13px;
+    color: var(--danger);
+    background: var(--danger-bg);
+    border: 1px solid #fecaca;
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    display: none;
+    line-height: 1.5;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+  }
+
+  /* Chat area */
+  #chat-area {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-height: 380px;
+    max-height: calc(100vh - 300px);
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  #empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text3);
+    font-size: 14px;
+    gap: 8px;
+    text-align: center;
+    padding: 40px;
+  }
+
+  #empty-state .icon { font-size: 28px; opacity: 0.4; }
+
+  .msg { display: flex; flex-direction: column; gap: 4px; max-width: 95%; }
+  .msg.tutor { align-self: flex-start; max-width: 100%; }
+  .msg.student { align-self: flex-end; }
+
+  .msg-label {
+    font-size: 11px;
+    color: var(--text3);
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.04em;
+  }
+
+  .msg.student .msg-label { text-align: right; }
+
+  .bubble {
+    padding: 12px 16px;
+    font-size: 15px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    border-radius: 4px 14px 14px 14px;
+  }
+
+  .msg.tutor .bubble {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .msg.student .bubble {
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    color: var(--accent);
+    border-radius: 14px 4px 14px 14px;
+  }
+
+  .typing {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 14px 16px;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text3);
+    animation: bounce 1.2s ease-in-out infinite;
+  }
+
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+    40% { transform: translateY(-5px); opacity: 1; }
+  }
+
+  /* Input row */
+  #input-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+
+  #send-btn {
+    height: 48px;
+    width: 48px;
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    flex-shrink: 0;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #send-btn:hover { opacity: 0.85; }
+  #send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .hint {
+    font-size: 12px;
+    color: var(--text3);
+    font-family: 'Courier New', monospace;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ESL Tutor Bot</h1>
+  <span>prototype v1</span>
+</header>
+
+<div id="main">
+
+  <div id="setup-panel">
+    <div id="setup-header" class="open" onclick="toggleSetup()">
+      <div id="setup-title">
+        <span id="setup-indicator"></span>
+        lesson material
+      </div>
+      <span id="chevron" class="rotated">▲</span>
+    </div>
+    <div id="setup-body">
+    <div id="mode-toggle" style="display:flex; gap:24px; font-family:'Courier New',monospace; font-size:13px; color:var(--text2);">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; text-transform:none; letter-spacing:0;">
+          <input type="radio" name="mode" value="quiz" checked onchange="switchMode('quiz')"> Quiz
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; text-transform:none; letter-spacing:0;">
+          <input type="radio" name="mode" value="conversation" onchange="switchMode('conversation')"> Conversation Practice
+        </label>
+      </div>
+
+      <div id="quiz-fields">
+        <label for="lesson-input">paste lesson content below</label>
+        <textarea id="lesson-input" placeholder="Vocabulary list, grammar rules, a reading passage, chapter notes — anything you want the bot to quiz the student on."></textarea>
+      </div>
+
+      <div id="conv-fields" style="display:none;">
+        <label for="scenario-input">describe the conversation scenario</label>
+        <textarea id="scenario-input" placeholder="Example: We are at a coffee shop. You are the customer and I am the barista. Help me practice ordering drinks, asking questions about the menu, and making small talk. Correct my grammar as we go." style="height:120px;"></textarea>
+      </div>
+
+      <button id="start-btn" onclick="startSession()">load &amp; start quiz →</button>
+      <div id="error-bar"></div>
+    </div>
+  </div>
+
+  <div id="chat-area">
+    <div id="empty-state">
+      <div class="icon">✦</div>
+      <div>paste lesson material above, then start a session</div>
+    </div>
+  </div>
+
+  <div id="input-row">
+    <textarea id="user-input" placeholder="Type your answer and press Enter..." disabled onkeydown="handleKey(event)"></textarea>
+    <button id="send-btn" onclick="sendMessage()" disabled>→</button>
+  </div>
+  <div class="hint">shift+enter for new line · enter to send</div>
+
+</div>
+
+<script>
+let lessonMaterial = '';
+let conversationHistory = [];
+let sessionActive = false;
+let isTyping = false;
+let setupOpen = true;
+let sessionMode = 'quiz';
+
+function switchMode(mode) {
+  sessionMode = mode;
+  document.getElementById('quiz-fields').style.display = mode === 'quiz' ? 'block' : 'none';
+  document.getElementById('conv-fields').style.display = mode === 'conversation' ? 'block' : 'none';
+  document.getElementById('start-btn').textContent = mode === 'quiz' ? 'load & start quiz →' : 'start conversation →';
+}
+
+function toggleSetup() {
+  setupOpen = !setupOpen;
+  const body = document.getElementById('setup-body');
+  const header = document.getElementById('setup-header');
+  const chevron = document.getElementById('chevron');
+  body.classList.toggle('hidden', !setupOpen);
+  header.classList.toggle('open', setupOpen);
+  chevron.classList.toggle('rotated', setupOpen);
+}
+
+function showError(msg) {
+  const bar = document.getElementById('error-bar');
+  bar.style.display = 'block';
+  bar.textContent = '⚠ ' + msg;
+}
+
+function clearError() {
+  const bar = document.getElementById('error-bar');
+  bar.style.display = 'none';
+}
+
+function buildSystemPrompt() {
+  if (sessionMode === 'conversation') {
+    return `You are a warm, skilled ESL conversation partner. Your job is to have a natural, engaging conversation with the student while silently tracking their grammar and vocabulary errors.
+
+SCENARIO:
+---
+${lessonMaterial}
+---
+
+Rules:
+1. Open with a warm, natural greeting that fits the scenario. Do not explain the rules or announce what you are doing — just begin the scene naturally.
+2. Keep the conversation flowing. Respond naturally to what the student says, as a real person in this scenario would.
+3. Correct errors inline but lightly — do not interrupt the flow. After responding naturally, add a brief correction in a clearly separated line starting with "📝" so it is visually distinct. Example: "📝 Small fix: 'I would like a coffee' not 'I want coffee' — 'would like' sounds more polite in this context."
+4. Only correct errors that matter for communication or that reflect a pattern. Do not correct every minor slip — prioritize corrections that will genuinely help the student improve.
+5. Adapt your vocabulary and sentence complexity to the student's proficiency level as revealed by how they write.
+6. If the student seems stuck or struggling, gently offer a hint or a simpler way to express what they seem to be trying to say.
+7. Allow the student to mix in their native language if they get stuck. Acknowledge what they said, then model the English version naturally in your response.
+8. Keep responses concise — this is a conversation, not a lecture. Match the student's energy and pace.
+9. Periodically introduce new vocabulary or phrases that fit naturally into the scenario and would be useful for the student to know.
+10. After every 5–6 exchanges, briefly step outside the scene with a one-line encouragement or observation about their progress, then return to the conversation.
+11. When the student wants to end the session, give a short summary of: what they did well, 1–2 recurring errors to watch for, and one specific thing to practice before next time.`;
+  }
+
+  return `Your role: You are an exceptional ESL tutor — adaptive, warm, and deeply effective with learners of all ages, backgrounds, and skill levels. You meet every student exactly where they are.
+Your personality: You lead with genuine warmth and make every student feel capable and seen. You are encouraging without being patronizing, honest without being harsh, and patient without being passive. You read the emotional temperature of every response — not just whether the answer was right, but how the student feels about it. You celebrate real effort, not just correct answers. You never make a student feel small for not knowing something. You understand that learning a language is an act of courage, and you treat it as such.
+Your intelligence: You explain things with the precision of an expert and the clarity of a great teacher — never dumbing down, always making complex ideas feel accessible. You choose the right analogy for the right student. You notice patterns in their mistakes that they can't see themselves, and you name them gently and usefully.
+Your adaptability: You read cues about the student's age, fluency level, confidence, and learning style from how they write and respond. You adjust your vocabulary, tone, pace, and encouragement style accordingly — a nervous beginner gets more warmth and simpler language; a confident advanced learner gets more challenge and nuance. You never assume. You observe and adapt.
+Your core belief: Every student can learn this. Your job is to make them believe it too.
+
+Rules:
+1. Start by briefly describing what you will quiz the student on, then ask your first question.
+2. After each student response, give clear specific feedback — correct or incorrect.
+3. If incorrect: explain why, give the correct answer, and name the section of material they should review (if section reference is available and only if it is better they review the material as opposed to learn from you).
+4. If correct: give brief praise, then move to the next question.
+5. Vary question types: vocabulary definitions, fill-in-the-blank, comprehension, grammar application.
+6. Keep language simple and encouraging — this is a language learner.
+7. Give progress summaries or offer a brief check-in when: the student has struggled with 2+ consecutive questions or shows discouragement, gets a streak of questions correct (especially if beyond their typical performance. If no session history exists, treat the current session as the baseline.), when you transition between question types, when the student seems confused (not just incorrect), or at the end of the session. At any sign of discouragement, give them enumerated options for how they might like to be helped based on your best guess of what they most likely need to get a grasp of the material and feel confident in their ability to learn the material.
+8. One feedback + one question per response. Keep it concise.
+9. If the user wants to dive deeper into a topic of the lesson material or otherwise needs more explaining beyond what the lesson covered, answer the question concisely and offer to help address those deeper topics after they complete your structured session. Then at the end bring up any points that they desired to learn more about and wasn't addressed to their full satisfaction. If the student prefers you to help them with their desired topic, help as best you can but state that you aren't optimized to deviate too much from the lesson plan.
+10. Learn about user level of language proficiency by how they write in the language they are learning. Adjust your level of vocabulary and sentence complexity based on their comfort and understanding. If they indicate they don't understand or implicitly don't understand by how they respond, address the potential misunderstanding by clarifying what you had meant and adjust your language to optimize their understanding of your text.
+11. Allow multiple languages. Allow the user to communicate with you in their more proficient language(s), but monitor dependence on it and encourage the use of their language of study (los) with you. If they are hesitant to use English, gently make suggestions upon good opportunities for them to use their language of study. Example: they respond to you with a simple phrase in their native language that you know they likely know in their los, so you encourage them to say re-type their phrase in the los. If they decline, then the next time you attempt to encourage something similar, you show them the translated version of their submission in their los. Allow them to fill in words they don't know in the los with those of their stronger languages. Encourage this with students who may benefit from the practice. When you reply to them, you can start your reply by showing them their submission but with all words in their los, bracketing or otherwise highlighting the words you translated for them. Then as part of your response, show your reply to their submission. 
+12. Optimize your help to the student. Each student will be different and your approach should adapt to the with the goal of helping them learn as efficiently as possible while considering all relevant contextual factors you can take into account. Example: If you make suggestions that the student ignores, then make those suggestions less frequent. If they tend to display a pattern of behavior or needs, begin to anticipate them and adjust your approach accordingly. Example: If the student wants to stop and practice something they struggled with a few minutes later after moving on so they could reinforce what they learned before they forget, then upon future areas of difficulty, offer to allow them to practice what they learned a few minutes later after moving on, but at a naturally good place to take a break.
+13. Revisit errors later in the session. When a student answers a question incorrectly, mentally flag the concept and return to it 3–5 questions later with a fresh version of the same question or a closely related one. Do not announce that you are doing this. The goal is natural reinforcement, not a formal retry. Only revist when the nature of their error was because they genuinely did not know the answer, as opposed to being confused by some aspect of the question itself.
+14. Scaffold before giving the answer — but only when it will help. When a student is wrong or stuck, first assess whether scaffolding is appropriate. Deploy scaffolding when: the student shows visible effort but is heading in the wrong direction; the concept was just introduced in the lesson; the student has struggled with this concept earlier in the session; or the student seems discouraged and needs a hint to restore confidence. Skip scaffolding and explain directly when: the student gives a completely blank or disengaged response and a hint won't bridge the gap; the student is advanced and confident and likely just made a careless slip; or the student has already been scaffolded on this exact concept earlier in the session and still got it wrong — in that case, explain clearly and flag the concept for a revisit per rule 13. The core principle: scaffolding is for almost there moments. If they're nowhere near it, explain. If they barely missed, correct quickly and move on.
+15. Verify your explanations landed. After explaining a concept, briefly confirm the student understood — not by asking "Did you understand?" but by asking a targeted follow-up that would reveal whether they did. If they seem confused, offer an alternative explanation or analogy before moving on.
+16. Cultural sensitivity in feedback. Some students may be culturally conditioned to avoid admitting confusion or may find direct praise uncomfortable. Treat hesitation, vague answers, or unusual brevity as potential confusion signals. Do not assume silence or compliance means understanding.
+17. End with a concrete study recommendation. Your closing summary must include one or two specific things the student should review or practice before their next session — not just general encouragement. Make it actionable and tied to what actually happened in the session.
+18. Offer enumerated response options when asking the student a question that has predictable answer choices. Format them as a numbered list. Example: "Would you like to continue or take a moment to review? 1. Continue to the next question. 2. Review what we just covered. 3. Ask me to explain it differently." Always accept non-numbered responses naturally without calling attention to the format.
+
+LESSON MATERIAL:
+---
+${lessonMaterial}
+---`;}//this function establishes packages the static rules that AI will use each call: rules + lesson material inputted by user
+
+function addMessage(role, text) {
+  document.getElementById('empty-state')?.remove();
+  const chatArea = document.getElementById('chat-area');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg ' + (role === 'assistant' ? 'tutor' : 'student');
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = role === 'assistant' ? 'tutor' : 'you';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = marked.parse(text);
+  wrapper.appendChild(label);
+  wrapper.appendChild(bubble);
+  chatArea.appendChild(wrapper);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}//This adds the chat to the visual screen in bubbles.
+
+function showTyping() {
+  document.getElementById('empty-state')?.remove();
+  const chatArea = document.getElementById('chat-area');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg tutor';
+  wrapper.id = 'typing-indicator';
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = 'tutor';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble typing';
+  bubble.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+  wrapper.appendChild(label);
+  wrapper.appendChild(bubble);
+  chatArea.appendChild(wrapper);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function removeTyping() {
+  document.getElementById('typing-indicator')?.remove();
+}
+
+async function startSession() {
+  if (sessionMode === 'quiz') {
+    const input = document.getElementById('lesson-input').value.trim();
+    if (!input) { alert('Please paste some lesson material first.'); return; }
+    lessonMaterial = input;
+  } else {
+    const input = document.getElementById('scenario-input').value.trim();
+    if (!input) { alert('Please describe the conversation scenario first.'); return; }
+    lessonMaterial = input; // reusing this variable to carry the scenario into buildSystemPrompt
+  }
+  clearError();
+  conversationHistory = [];
+  sessionActive = true;
+
+  document.getElementById('setup-indicator').classList.add('loaded');
+  document.getElementById('start-btn').disabled = true;
+  document.getElementById('start-btn').textContent = 'loaded ✓';
+  document.getElementById('user-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+
+  if (setupOpen) toggleSetup();
+  await tutorRespond(null, true);
+}
+
+async function tutorRespond(userMessage, isFirst = false) {//usermessage is dead code - not used
+  if (isTyping) return;
+  isTyping = true;
+  document.getElementById('send-btn').disabled = true;
+  showTyping();
+//the above checks if a prompt has already been submitted, so it shortcircuits any subsequent requests before the initial inquiry completes. isFirst is made true elsewhere before the first user input.
+
+ const firstTurn = { role: 'user', content: sessionMode === 'quiz' ? 'Please start the quiz. Briefly introduce what will be covered and ask your first question.' : 'Please begin the conversation scenario naturally.' };//This loads the standard first question internal prompt into a variable
+  const messages = isFirst ? [firstTurn] : [...conversationHistory]; //variable defined by a condition decided by a ternary variable. This uses that first prompt variable only if it is the first turn, otherwise deploys the whole convo hist
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',//POST means we are sending, not just requesting data
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },      // sends POST request to Anthropic API with the conversation payload.
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        system: buildSystemPrompt(),
+        messages //This loads either all convo history or the template prompt if the first turn
+      })//JSON.stringify() converts the JS object into a JSON string because that's the format the API expects over the network.
+    });//the fetch sends metadata and payload(body:), awaits the raw HTTP response, then then stores it under the variable "response"
+
+    const data = await response.json();//This defines data as the json version of the data received, stored under "response" variable
+
+    if (!response.ok) {//status code check for failed HTTP response
+      removeTyping();
+      showError('API error ' + response.status + ': ' + (data?.error?.message || JSON.stringify(data)));
+      isTyping = false;
+      document.getElementById('send-btn').disabled = false;
+      return;
+    }// if request did not succeed, then show the details of error
+
+    const replyText = data?.content?.[0]?.text; //defines reply text from properties of data
+    if (!replyText) {
+      removeTyping();
+      showError('No text in response. Raw: ' + JSON.stringify(data).slice(0, 300));
+      isTyping = false;
+      document.getElementById('send-btn').disabled = false;
+      return;
+    }//this resets things and provides an error message if there was no text in the response
+
+    removeTyping();
+    clearError();
+    addMessage('assistant', replyText);
+//removes the three dots of typing, clears error msg; displays reponse message
+    if (isFirst) {
+      conversationHistory.push(firstTurn);
+    }
+    conversationHistory.push({ role: 'assistant', content: replyText });
+
+  } catch (err) {//err is automatically populated when try throws an error
+    removeTyping();
+    showError('Fetch failed: ' + (err.message || String(err)) + '. This file must be opened from claude.ai, not a local filesystem.');
+  }// the "||" makes the left side of it the default and the right side the fall back.
+
+  isTyping = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('user-input').focus();
+}//this reset works at the end of hte try, whether it succeeds or fails
+
+async function sendMessage() {
+  if (!sessionActive || isTyping) return;
+  const input = document.getElementById('user-input');
+  const text = input.value.trim();//saves user input to this variable
+  if (!text) return;
+  input.value = ''; //clears original user input
+  input.style.height = '48px';
+  addMessage('user', text);
+  conversationHistory.push({ role: 'user', content: text });
+  await tutorRespond(text);
+}
+
+// The user-input textarea has an onkeydown event listener that fires 
+// this function on every keypress, passing the full event object as e.
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+} 
+
+document.getElementById('user-input').addEventListener('input', function() {
+  this.style.height = '48px';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+</script>
+</body>
+</html>
