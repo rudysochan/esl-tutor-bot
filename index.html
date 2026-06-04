@@ -462,7 +462,7 @@ function addMessage(role, text) {
   wrapper.appendChild(label);
   wrapper.appendChild(bubble);
   chatArea.appendChild(wrapper);
-  chatArea.scrollTop = chatArea.scrollHeight;
+  wrapper.scrollIntoView({ block: 'start', behavior: 'instant' });
 }//This adds the chat to the visual screen in bubbles.
 
 function showTyping() {
