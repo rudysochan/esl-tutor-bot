@@ -299,6 +299,19 @@
     font-family: 'Courier New', monospace;
     text-align: right;
   }
+
+  /* --- session parameters --- */
+  #param-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .param-field { display: flex; flex-direction: column; gap: 6px; }
+  #param-grid select, #lesson-number-input {
+    width: 100%; font-family: 'Courier New', monospace; font-size: 13px;
+    color: var(--text); background: var(--surface2);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px;
+  }
+  #param-grid select { cursor: pointer; }
+  #param-grid select:focus, #lesson-number-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+  .param-note { font-size: 10px; color: var(--text3); font-style: italic; text-transform: none; letter-spacing: 0; }
+  #lesson-number-input:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -329,6 +342,45 @@
       </div>
 
       <div id="quiz-fields">
+        <div id="param-grid">
+          <div class="param-field">
+            <label for="difficulty-select">difficulty</label>
+            <select id="difficulty-select">
+              <option value="Beginner">Beginner</option>
+              <option value="Intermediate" selected>Intermediate</option>
+              <option value="Advanced">Advanced</option>
+            </select>
+          </div>
+          <div class="param-field">
+            <label for="question-count-select">questions</label>
+            <select id="question-count-select">
+              <option value="10">10</option>
+              <option value="15" selected>15</option>
+              <option value="20">20</option>
+            </select>
+          </div>
+          <div class="param-field">
+            <label for="native-lang-select">native language</label>
+            <select id="native-lang-select">
+              <option value="Not specified" selected>Not specified</option>
+              <option value="Spanish">Spanish</option>
+              <option value="Mandarin Chinese">Mandarin Chinese</option>
+              <option value="Korean">Korean</option>
+              <option value="Japanese">Japanese</option>
+              <option value="Vietnamese">Vietnamese</option>
+              <option value="Arabic">Arabic</option>
+              <option value="Portuguese">Portuguese</option>
+              <option value="French">French</option>
+              <option value="Russian">Russian</option>
+              <option value="Tagalog">Tagalog</option>
+              <option value="Ukranian">Ukranian</option>
+            </select>
+          </div>
+          <div class="param-field">
+            <label for="lesson-number-input">lesson # <span class="param-note">coming soon</span></label>
+            <input type="text" id="lesson-number-input" placeholder="e.g. 16" disabled>
+          </div>
+        </div>
         <label for="lesson-input">paste lesson content below</label>
         <textarea id="lesson-input" placeholder="Vocabulary list, grammar rules, a reading passage, chapter notes — anything you want the bot to quiz the student on."></textarea>
       </div>
@@ -365,6 +417,10 @@ let sessionActive = false;
 let isTyping = false;
 let setupOpen = true;
 let sessionMode = 'quiz';
+let difficulty = 'Intermediate';
+let questionCount = '15';
+let nativeLanguage = 'Not specified';
+let lessonNumber = ''; // PLACEHOLDER — captured but not wired to anything yet
 
 function switchMode(mode) {
   sessionMode = mode;
@@ -443,6 +499,11 @@ Rules:
 17. End with a concrete study recommendation. Your closing summary must include one or two specific things the student should review or practice before their next session — not just general encouragement. Make it actionable and tied to what actually happened in the session.
 18. Offer enumerated response options when asking the student a question that has predictable answer choices. Format them as a numbered list. Example: "Would you like to continue or take a moment to review? 1. Continue to the next question. 2. Review what we just covered. 3. Ask me to explain it differently." Always accept non-numbered responses naturally without calling attention to the format.
 
+SESSION PARAMETERS:
+- Difficulty: ${difficulty}. Calibrate every question to this level — vocabulary, sentence complexity, and concept depth should all match a ${difficulty} learner. For Advanced, push with nuance and minimal scaffolding; for Beginner, keep language simple and supportive.
+- Question count: Ask approximately ${questionCount} questions total, then deliver your closing summary and study recommendation. Pace yourself toward that number.
+- Native language: ${nativeLanguage === 'Not specified' ? 'The student has not specified a native language. Conduct the entire session in English.' : `The student's native language is ${nativeLanguage}. You may briefly use ${nativeLanguage} to clarify a genuinely confusing concept, but keep the session primarily in English and always return to English.`}
+
 LESSON MATERIAL:
 ---
 ${lessonMaterial}
@@ -492,6 +553,11 @@ async function startSession() {
     const input = document.getElementById('lesson-input').value.trim();
     if (!input) { alert('Please paste some lesson material first.'); return; }
     lessonMaterial = input;
+    difficulty = document.getElementById('difficulty-select').value;
+    questionCount = document.getElementById('question-count-select').value;
+    nativeLanguage = document.getElementById('native-lang-select').value;
+    lessonNumber = document.getElementById('lesson-number-input').value;
+    //upon starting, the selections of the drop downs get passed into these variables
   } else {
     const input = document.getElementById('scenario-input').value.trim();
     if (!input) { alert('Please describe the conversation scenario first.'); return; }
@@ -566,7 +632,7 @@ async function tutorRespond(userMessage, isFirst = false) {//usermessage is dead
 
   } catch (err) {//err is automatically populated when try throws an error
     removeTyping();
-    showError('Fetch failed: ' + (err.message || String(err)) + '. This file must be opened from claude.ai, not a local filesystem.');
+    showError('Fetch failed: ' + (err.message || String(err)) + '. Is the backend running? Run "node server.js" and open the localhost URL it prints — not the file directly.');
   }// the "||" makes the left side of it the default and the right side the fall back.
 
   isTyping = false;
