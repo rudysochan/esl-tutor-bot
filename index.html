@@ -381,6 +381,14 @@
             <input type="text" id="lesson-number-input" placeholder="e.g. 16" disabled>
           </div>
         </div>
+        <div class="param-field">
+        <div class="param-field" style="margin-bottom:8px;">
+          <label for="lesson-file-input">or upload a file (.docx / .pdf)</label>
+          <input type="file" id="lesson-file-input" accept=".docx,.pdf" onchange="handleFileUpload(event)">
+          <!-- accept=".docx,.pdf" limits the file picker to these two types; onchange fires handleFileUpload whenever a file is selected -->
+          <span id="upload-status" style="font-size:0.85em; color:var(--text3);"></span>
+          <!-- empty span that will hold status text like "extracting..." or an error, filled in by JS -->
+        </div>
         <label for="lesson-input">paste lesson content below</label>
         <textarea id="lesson-input" placeholder="Vocabulary list, grammar rules, a reading passage, chapter notes — anything you want the bot to quiz the student on."></textarea>
       </div>
@@ -421,6 +429,7 @@ let difficulty = 'Intermediate';
 let questionCount = '15';
 let nativeLanguage = 'Not specified';
 let lessonNumber = ''; // PLACEHOLDER — captured but not wired to anything yet
+let pendingFile = null;//holds a file the user selected but hasn't extracted yet; extraction now happens when they click start
 
 function switchMode(mode) {
   sessionMode = mode;
@@ -548,10 +557,47 @@ function removeTyping() {
   document.getElementById('typing-indicator')?.remove();
 }
 
+function handleFileUpload(event) {//fires when a file is chosen — now it only queues the file, extraction happens at start
+  const file = event.target.files[0];//grabs the file the user picked
+  if (!file) return;//bail out if nothing was selected
+  pendingFile = file;//stash it for startSession to extract later
+  document.getElementById('upload-status').textContent = '📎 ' + file.name + ' ready — click "load & start quiz" to use it';//tells the user the file is queued, not yet processed
+}
+
+async function extractPendingFile() {//does the actual upload+extraction; called by startSession when a file is queued
+  const statusEl = document.getElementById('upload-status');
+  statusEl.textContent = 'extracting text from ' + pendingFile.name + '...';//feedback that work is happening
+
+  const formData = new FormData();//browser object for sending files over HTTP
+  formData.append('lessonFile', pendingFile);//field name must match upload.single('lessonFile') on the server
+
+  const response = await fetch('/api/extract-text', { method: 'POST', body: formData });//send the file to the backend
+  const data = await response.json();//parse the JSON response
+
+  if (!response.ok) throw new Error(data.error || 'extraction failed');//if the server reported a problem, throw so startSession's catch handles it
+
+  document.getElementById('lesson-input').value = data.text;//drop the cleaned text into the textarea (overwrites any pasted text — Option A)
+  statusEl.textContent = '✓ loaded from ' + pendingFile.name;//confirm success
+  pendingFile = null;//clear it so we don't re-extract the same file on a second start
+}
+
 async function startSession() {
   if (sessionMode === 'quiz') {
-    const input = document.getElementById('lesson-input').value.trim();
-    if (!input) { alert('Please paste some lesson material first.'); return; }
+    const startBtn = document.getElementById('start-btn');//reference to the start button so we can show loading state on it
+    if (pendingFile) {//only if a file is queued and not yet extracted
+      startBtn.disabled = true;//lock the button during extraction so it can't be double-clicked
+      startBtn.textContent = 'loading file...';//visible loading feedback on the button itself
+      try {
+        await extractPendingFile();//wait for extraction to finish and fill the textarea
+      } catch (err) {//if extraction fails
+        document.getElementById('upload-status').textContent = 'error: ' + err.message;//show the error
+        startBtn.disabled = false;//re-enable so the user can paste manually instead
+        startBtn.textContent = 'load & start quiz →';//restore the label
+        return;//stop here — don't start a session with no material
+      }
+    }
+    const input = document.getElementById('lesson-input').value.trim();//read the textarea (now filled, whether by upload or paste)
+    if (!input) { alert('Please paste some lesson material first.'); return; }//still catches the truly-empty case
     lessonMaterial = input;
     difficulty = document.getElementById('difficulty-select').value;
     questionCount = document.getElementById('question-count-select').value;

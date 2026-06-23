@@ -13,9 +13,14 @@ console.log('Key loaded:', process.env.ANTHROPIC_API_KEY ? 'YES' : 'NO');
 // 'Express' is a framework that makes building a Node web server much simpler. require() found and loaded the 'express' package, and const express stores a reference to the factory function it returned. Calling express() builds and returns a new Express application. 
 //node modules are in the project folder because we used npm to download them. require() reads from from that folder, which is a local library.
 const express = require('express');
+const multer = require('multer');//library for handling file uploads in Express
+const mammoth = require('mammoth');//mammoth variable now = an object, the library for reading docx files
+const pdfParse = require('pdf-parse');//variable for reading pdf files
 
 // Creates your server instance. The factory function imported above is called and an object has been made that is ready to act as the server.
 const app = express();
+
+const upload = multer({ storage: multer.memoryStorage() });//configures multer to hold the uploaded file in RAM instead of saving it to disk
 
 // Tells Express to automatically parse incoming JSON request bodies
 // Without this, req.body would be undefined
@@ -53,6 +58,50 @@ app.post('/api/chat', async (req, res) => {
 
   // Send Anthropic's response back to the browser
   res.json(data);
+});
+
+app.post('/api/extract-text', upload.single('lessonFile'), async (req, res) => {//new route — fires when the frontend uploads a file under the field name 'lessonFile'
+  try {
+    const file = req.file;//multer attaches the uploaded file here as a buffer (raw bytes in memory)
+    if (!file) return res.status(400).json({ error: 'No file received' });//bail out early if somehow no file came through
+
+    let rawText = '';//will hold whatever text we manage to pull out of the file
+
+    if (file.originalname.toLowerCase().endsWith('.docx')) {//checks the filename extension, case-insensitive
+      const result = await mammoth.extractRawText({ buffer: file.buffer });//mammoth reads the docx buffer and extracts plain text
+      rawText = result.value;//the extracted text lives on .value
+    } else if (file.originalname.toLowerCase().endsWith('.pdf')) {
+      const result = await pdfParse(file.buffer);//pdf-parse reads the pdf buffer and extracts plain text
+      rawText = result.text;//the extracted text lives on .text
+    } else {
+      return res.status(400).json({ error: 'Unsupported file type. Please upload a .docx or .pdf file.' });//rejects anything that isn't docx or pdf
+    }
+
+    const cleanupResponse = await fetch('https://api.anthropic.com/v1/messages', {//sends the messy raw text to Claude for cleanup
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': process.env.ANTHROPIC_API_KEY
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',//cheapest model tier — this is a simple cleanup task, not complex reasoning
+        max_tokens: 2000,
+        system: 'You clean up raw text extracted from lesson documents (PDF or Word). Remove page numbers, headers, footers, and extraction artifacts. Preserve all actual lesson content — vocabulary terms and grammar rules/examples should remain clearly distinguishable. Output only the cleaned lesson text, with no preamble or commentary.',
+        messages: [{ role: 'user', content: rawText }]
+      })
+    });
+
+    const cleanupData = await cleanupResponse.json();//parses Claude's response from raw HTTP into a JS object
+    const cleanedText = cleanupData.content?.[0]?.text || rawText;//grabs the cleaned text; falls back to the raw text if anything about the Claude call went wrong
+    console.log('\n===== RAW EXTRACTED TEXT (pdf-parse output) =====\n', rawText, '\n===== END RAW =====\n');//TEMP: shows the noisy text pdf-parse pulled straight from the PDF, before any cleanup
+    console.log('\n===== CLEANED TEXT (Haiku output) =====\n', cleanedText, '\n===== END CLEANED =====\n');//TEMP: shows the final text the quiz engine actually receives, after Haiku cleanup
+    res.json({ text: cleanedText });//sends the final cleaned text back to the frontend
+
+  } catch (err) {
+    console.error('Extraction error:', err);//logs the real error in your terminal for debugging
+    res.status(500).json({ error: 'Failed to extract text from file: ' + err.message });//sends a readable error back to the frontend
+  }
 });
 
 // Start the server and listen for requests on port 3000
