@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ESL Tutor Bot</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<!-- ESL Tutor Bot — unified quiz/conversation build -->
+
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -312,6 +314,30 @@
   #param-grid select:focus, #lesson-number-input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
   .param-note { font-size: 10px; color: var(--text3); font-style: italic; text-transform: none; letter-spacing: 0; }
   #lesson-number-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Quiz / Conversation switch — a sliding knob with a label on each side */
+  #mode-toggle {
+    display: inline-flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .mode-label {
+    font-family: 'Courier New', monospace; font-size: 13px; color: var(--text3);
+    cursor: pointer; user-select: none; transition: color 0.2s;
+  }
+  .mode-label.active { color: var(--text); font-weight: 500; }
+  #mode-switch {
+    position: relative; width: 58px; height: 30px; flex: none; padding: 0;
+    background: var(--accent); border: none; border-radius: 15px; cursor: pointer;
+    transition: background 0.2s;
+  }
+  #mode-switch.conversation { background: #7c5cff; }
+  #mode-knob {
+    position: absolute; top: 3px; left: 3px; width: 24px; height: 24px;
+    background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  }
+  #mode-switch.conversation #mode-knob { transform: translateX(28px); }
+  #mode-toggle.locked { opacity: 0.5; }
+  #mode-toggle.locked .mode-label, #mode-toggle.locked #mode-switch { cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -332,16 +358,13 @@
       <span id="chevron" class="rotated">▲</span>
     </div>
     <div id="setup-body">
-    <div id="mode-toggle" style="display:flex; gap:24px; font-family:'Courier New',monospace; font-size:13px; color:var(--text2);">
-        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; text-transform:none; letter-spacing:0;">
-          <input type="radio" name="mode" value="quiz" checked onchange="switchMode('quiz')"> Quiz
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; text-transform:none; letter-spacing:0;">
-          <input type="radio" name="mode" value="conversation" onchange="switchMode('conversation')"> Conversation Practice
-        </label>
+    <div id="mode-toggle" role="group" aria-label="session mode">
+        <span id="mode-label-quiz" class="mode-label active" onclick="switchMode('quiz')">Quiz</span>
+        <button type="button" id="mode-switch" role="switch" aria-checked="false" aria-label="Toggle between Quiz and Conversation mode" onclick="toggleMode()"><span id="mode-knob"></span></button>
+        <span id="mode-label-conv" class="mode-label" onclick="switchMode('conversation')">Conversation</span>
       </div>
 
-      <div id="quiz-fields">
+      <div id="setup-fields">
         <div id="param-grid">
           <div class="param-field">
             <label for="difficulty-select">difficulty</label>
@@ -351,7 +374,7 @@
               <option value="Advanced">Advanced</option>
             </select>
           </div>
-          <div class="param-field">
+          <div class="param-field" id="questions-field">
             <label for="question-count-select">questions</label>
             <select id="question-count-select">
               <option value="10">10</option>
@@ -381,7 +404,6 @@
             <input type="text" id="lesson-number-input" placeholder="e.g. 16" disabled>
           </div>
         </div>
-        <div class="param-field">
         <div class="param-field" style="margin-bottom:8px;">
           <label for="lesson-file-input">or upload a file (.docx / .pdf)</label>
           <input type="file" id="lesson-file-input" accept=".docx,.pdf" onchange="handleFileUpload(event)">
@@ -391,11 +413,9 @@
         </div>
         <label for="lesson-input">paste lesson content below</label>
         <textarea id="lesson-input" placeholder="Vocabulary list, grammar rules, a reading passage, chapter notes — anything you want the bot to quiz the student on."></textarea>
-      </div>
 
-      <div id="conv-fields" style="display:none;">
-        <label for="scenario-input">describe the conversation scenario</label>
-        <textarea id="scenario-input" placeholder="Example: We are at a coffee shop. You are the customer and I am the barista. Help me practice ordering drinks, asking questions about the menu, and making small talk. Correct my grammar as we go." style="height:120px;"></textarea>
+        <label for="instructions-input" style="margin-top:8px;">teacher instructions <span class="param-note">optional</span></label>
+        <textarea id="instructions-input" placeholder="This field is for teachers to provide the bot with instructions separate from the lesson material. In quiz mode, it might be to focus on specific topic areas or use specific question types." style="height:80px;"></textarea>
       </div>
 
       <button id="start-btn" onclick="startSession()">load &amp; start quiz →</button>
@@ -419,23 +439,95 @@
 </div>
 
 <script>
-let lessonMaterial = '';
-let conversationHistory = [];
+// ---- Session state (shared by both modes) ----
+let lessonMaterial = '';        // lesson text, typed or extracted from a file
+let teacherInstructions = '';   // optional teacher directives; kept separate so a file upload can't overwrite it
+let conversationHistory = [];    // full turn-by-turn record sent to the API; persists across mode switches
 let sessionActive = false;
-let isTyping = false;
+let isTyping = false;            // true while awaiting a bot reply; also locks the mode toggle
 let setupOpen = true;
-let sessionMode = 'quiz';
+let pendingFile = null;          // a chosen-but-not-yet-extracted file; extraction runs at start
+
+// ---- Mode + quiz parameters ----
+let sessionMode = 'quiz';        // 'quiz' | 'conversation' — the orientation the bot runs each turn
 let difficulty = 'Intermediate';
 let questionCount = '15';
 let nativeLanguage = 'Not specified';
-let lessonNumber = ''; // PLACEHOLDER — captured but not wired to anything yet
-let pendingFile = null;//holds a file the user selected but hasn't extracted yet; extraction now happens when they click start
+let lessonNumber = '';           // placeholder — captured but not yet wired to anything
+
+// ---- Mid-session switching ----
+// One bot, two orientations. The toggle can be flipped mid-session: buildSystemPrompt() rebuilds
+// every turn and history carries across modes. To keep the transcript clean when a student toggles
+// without engaging, an unanswered switch turn is "provisional" — returning to the committed mode
+// removes it, and a cached turn is restored instead of being regenerated.
+let committedMode = 'quiz';      // the mode the student last actually engaged with (the "origin")
+let pendingSwitch = false;       // is the latest turn an unanswered mode switch?
+let provisionalNode = null;      // DOM node of the provisional switch message, so we can remove it precisely
+let switchCache = { quiz: null, conversation: null }; // cached switch turns, valid until the student engages
+
+// Clicking the switch itself flips to the other mode; the side labels still jump straight to a mode.
+function toggleMode() {
+  switchMode(sessionMode === 'quiz' ? 'conversation' : 'quiz');
+}
 
 function switchMode(mode) {
+  if (mode === sessionMode) return;   // already in this mode — nothing to do
+  if (isTyping) return;               // toggle is locked while the bot is generating
   sessionMode = mode;
-  document.getElementById('quiz-fields').style.display = mode === 'quiz' ? 'block' : 'none';
-  document.getElementById('conv-fields').style.display = mode === 'conversation' ? 'block' : 'none';
-  document.getElementById('start-btn').textContent = mode === 'quiz' ? 'load & start quiz →' : 'start conversation →';
+  updateModeUI();
+  if (sessionActive) handleModeSwitch();  // mid-session flip triggers a transition turn
+}
+
+// Reflects the current mode in the switch (knob position + color), labels, quiz-only fields, and start label.
+function updateModeUI() {
+  const isConv = sessionMode === 'conversation';
+  const sw = document.getElementById('mode-switch');
+  sw.classList.toggle('conversation', isConv);
+  sw.setAttribute('aria-checked', isConv);
+  document.getElementById('mode-label-quiz').classList.toggle('active', !isConv);
+  document.getElementById('mode-label-conv').classList.toggle('active', isConv);
+  document.getElementById('questions-field').style.display = sessionMode === 'quiz' ? 'flex' : 'none';
+  document.getElementById('start-btn').textContent = sessionMode === 'quiz' ? 'load & start quiz →' : 'start conversation →';
+  // Mode-specific example in the teacher-instructions placeholder: shared lead-in, then only the active mode's example.
+  document.getElementById('instructions-input').placeholder = sessionMode === 'quiz'
+    ? 'This field is for teachers to provide the bot with instructions separate from the lesson material. In quiz mode, it might be to focus on specific topic areas or use specific question types.'
+    : 'This field is for teachers to provide the bot with instructions separate from the lesson material. In conversation mode, it might be the scenario for the conversation role-play.';
+}
+
+// Greys out and disables the toggle while the bot is replying (prevents rapid-fire switching).
+function setToggleLocked(locked) {
+  document.getElementById('mode-toggle').classList.toggle('locked', locked);
+}
+
+// Runs when the toggle is flipped during a live session.
+function handleModeSwitch() {
+  if (sessionMode === committedMode) {
+    // Back to the origin mode before engaging: drop the provisional turn (cached for free re-entry).
+    // From the student's point of view, nothing happened.
+    if (pendingSwitch) discardProvisionalTurn();
+    return;
+  }
+  // Entering a non-origin mode: restore a cached turn if we have one, else generate a fresh one.
+  if (switchCache[sessionMode]) restoreCachedTurn(sessionMode);
+  else tutorRespond(null, false, true);   // third arg flags this as a switch turn
+}
+
+// Removes the last (unanswered) switch turn from transcript + history, caching it for reuse.
+function discardProvisionalTurn() {
+  const assistantTurn = conversationHistory.pop();  // bot's switch message
+  const userTurn = conversationHistory.pop();       // synthetic switch instruction that preceded it
+  switchCache[assistantTurn._mode] = { user: userTurn, assistant: assistantTurn };
+  provisionalNode?.remove();
+  provisionalNode = null;
+  pendingSwitch = false;
+}
+
+// Re-displays a cached switch turn instead of calling the API again.
+function restoreCachedTurn(mode) {
+  const cached = switchCache[mode];
+  conversationHistory.push(cached.user, cached.assistant);
+  provisionalNode = addMessage('assistant', cached.assistant.content);
+  pendingSwitch = true;
 }
 
 function toggleSetup() {
@@ -460,26 +552,56 @@ function clearError() {
 }
 
 function buildSystemPrompt() {
+  // ---- CONVERSATION MODE ----
+  // Reinforces the SAME lesson material as quiz mode through a role-play conversation.
+  // Only this branch is returned when in conversation mode, so the model never sees quiz rules.
   if (sessionMode === 'conversation') {
-    return `You are a warm, skilled ESL conversation partner. Your job is to have a natural, engaging conversation with the student while silently tracking their grammar and vocabulary errors.
+    return `Your role: You are an exceptional ESL conversation coach — warm, adaptive, and genuinely engaging. You run a natural conversation that quietly gives the student repeated, low-pressure practice with the exact vocabulary and grammar from their lesson. Learning a language is an act of courage; you make the student feel capable while gently stretching them.
 
-SCENARIO:
+How the conversation reinforces the lesson:
+- Set up a role-play that creates natural reasons to use the target language. You play a character; the student plays a role across from you.
+- Choose the character yourself based on the lesson topic UNLESS the teacher instructions specify one — teacher instructions always take priority. Good picks are a fitting real-world role (a market vendor for food, a veterinarian for animals, a clerk, a farmer, a gardener) or a well-known figure portrayed with simple, clear English and the supportive orientation of an ESL coach (e.g., Abraham Lincoln, Mother Teresa). If a persona isn't helping, switch to a more useful one.
+- Steer the scene so the student keeps reaching for the lesson's words and structures. When the student AVOIDS using what they learned, don't lecture — first model a quick example yourself, then invite them to reply with something similar or parallel, so they still think through how the lesson applies in this new situation.
+
+OPENING — first message only (a cold start, when there are no earlier turns). Set up; do NOT start the scene yet. Send one short, friendly message with these four parts:
+1. Name what the lesson covers — its main vocabulary theme(s) and key grammar/concept point(s), from the lesson material below (or from the teacher instructions if there is no lesson material).
+2. State the roles in plain language: "I'm going to play [character], and you'll be [role]."
+3. Say how you'll help them practice — one sentence on what you'll do to give them chances to use the target vocabulary and grammar.
+4. Offer exactly these choices, then STOP and wait for the student's reply:
+   1. Start
+   2. Change the scenario or characters
+   3. Something else — describe your own idea (give one short example)
+Do not begin the scene or ask in-character questions until the student chooses. If they pick 2 or 3, revise and offer the same three choices again.
+
+MID-SESSION SWITCH: If there are already earlier turns (the student switched into conversation from a quiz), do NOT show the setup menu and do NOT restart. Briefly acknowledge the switch in one line, propose a quick scenario tied to what was just covered, then begin.
+
+Rules during the conversation:
+1. Once started, stay in character and keep the conversation flowing, responding as a real person in the scene would.
+2. THREE-PART RESPONSE STRUCTURE. Every reply consists of up to three components, in this order:
+   (a) DIRECT RESPONSE. Address what the student just wrote. Length target: ≤8 words; ≤15 acceptable. May exceed 15 only if the student's message exceeded 15 words, and must never exceed the student's own word count.
+   (b) LEARNING NOTE. Prefix with "📝". Present only if the student's message contains an error worth flagging. Correction priority: default to the lesson's target vocabulary/grammar structure. Exception — if a more fundamental error is clearly present that impedes the student's ability to learn or use the lesson's target structure, correct that instead; a fundamental blocker overrides lesson-target priority. If no lesson material is loaded, "highest-value error" means the most impactful error in the response generally. A second correction is permitted only if both are minor and two simultaneous corrections have not occurred in the past two AI responses. Omit this component entirely if no error exists. Example: "📝 Small fix: 'I would like an apple' sounds more natural than 'I want apple'."
+   (c) PROMPTING QUESTION. Exactly one question, never two. Omit only if (a) is independently strong enough to elicit a further response from the student without one. When present, the question must be constructed to create an opportunity for the student to apply the session's declared target structure/goal — not a generic conversational question.
+3. Adapt your vocabulary and sentence complexity to the student's level as shown by how they write. If they seem stuck, offer a hint or a simpler way to say what they are reaching for.
+4. Let the student mix in their native language when stuck: acknowledge what they meant, then model the English naturally. Gently encourage English at good moments.
+5. Naturally introduce useful new words or phrases that fit the scene.
+6. After every 5–6 exchanges, briefly step out of the scene with a one-line note of encouragement or progress, then return.
+7. When the student wants to stop, give a short summary: what they did well, 1–2 recurring errors to watch, and one specific thing to practice next time.
+${lessonMaterial ? `
+WHEN A LESSON WAS PROVIDED (there is target vocabulary/grammar to reinforce — these take precedence over simply keeping the chat pleasant):
+- Drive production of the target structures. The session exists to get the student actually USING the lesson's words and grammar. When the student answers in a word or two, or replies without using a target structure, do NOT move on — model one short example using the target grammar, then ask them to say it that way, and keep nudging until they produce it before continuing the scene. Example: student says "no" → "You could tell me: 'No, I don't need any onions.' Now you try — is there anything else you need?"
+` : ''}
+SESSION PARAMETERS:
+- Difficulty: ${difficulty}. Match your vocabulary and sentence complexity to a ${difficulty} learner.
+- Native language: ${nativeLanguage === 'Not specified' ? 'Not specified — conduct the conversation in English.' : `The student's native language is ${nativeLanguage}. You may briefly use ${nativeLanguage} to unblock a genuinely stuck moment, but keep the conversation primarily in English.`}
+${teacherInstructions ? `
+TEACHER INSTRUCTIONS (high priority — these direct the role-play: which character, scenario, or focus):
+---
+${teacherInstructions}
+---
+` : ''}${lessonMaterial ? `LESSON MATERIAL (the vocabulary and grammar to reinforce):
 ---
 ${lessonMaterial}
----
-
-Rules:
-1. Open with a warm, natural greeting that fits the scenario. Do not explain the rules or announce what you are doing — just begin the scene naturally.
-2. Keep the conversation flowing. Respond naturally to what the student says, as a real person in this scenario would.
-3. Correct errors inline but lightly — do not interrupt the flow. After responding naturally, add a brief correction in a clearly separated line starting with "📝" so it is visually distinct. Example: "📝 Small fix: 'I would like a coffee' not 'I want coffee' — 'would like' sounds more polite in this context."
-4. Only correct errors that matter for communication or that reflect a pattern. Do not correct every minor slip — prioritize corrections that will genuinely help the student improve.
-5. Adapt your vocabulary and sentence complexity to the student's proficiency level as revealed by how they write.
-6. If the student seems stuck or struggling, gently offer a hint or a simpler way to express what they seem to be trying to say.
-7. Allow the student to mix in their native language if they get stuck. Acknowledge what they said, then model the English version naturally in your response.
-8. Keep responses concise — this is a conversation, not a lecture. Match the student's energy and pace.
-9. Periodically introduce new vocabulary or phrases that fit naturally into the scenario and would be useful for the student to know.
-10. After every 5–6 exchanges, briefly step outside the scene with a one-line encouragement or observation about their progress, then return to the conversation.
-11. When the student wants to end the session, give a short summary of: what they did well, 1–2 recurring errors to watch for, and one specific thing to practice before next time.`;
+---` : `No lesson material was provided. Build the conversation around the teacher instructions above, keeping it useful ESL practice.`}`;
   }
 
   return `Your role: You are an exceptional ESL tutor — adaptive, warm, and deeply effective with learners of all ages, backgrounds, and skill levels. You meet every student exactly where they are.
@@ -512,7 +634,13 @@ SESSION PARAMETERS:
 - Difficulty: ${difficulty}. Calibrate every question to this level — vocabulary, sentence complexity, and concept depth should all match a ${difficulty} learner. For Advanced, push with nuance and minimal scaffolding; for Beginner, keep language simple and supportive.
 - Question count: Ask approximately ${questionCount} questions total, then deliver your closing summary and study recommendation. Pace yourself toward that number.
 - Native language: ${nativeLanguage === 'Not specified' ? 'The student has not specified a native language. Conduct the entire session in English.' : `The student's native language is ${nativeLanguage}. You may briefly use ${nativeLanguage} to clarify a genuinely confusing concept, but keep the session primarily in English and always return to English.`}
-
+${teacherInstructions ? `
+TEACHER INSTRUCTIONS:
+The teacher has provided the following directives for how to build and run this quiz. Treat them as high-priority guidance that shapes how you apply the rules above — for example, which topics to emphasize, what to focus on or skip, or how to adjust difficulty and question types. These are instructions ABOUT the quiz; they are not lesson material to quiz the student on. If a directive conflicts with the rules above, follow the teacher's directive unless doing so would harm the student's learning experience.
+---
+${teacherInstructions}
+---
+` : ''}
 LESSON MATERIAL:
 ---
 ${lessonMaterial}
@@ -533,7 +661,8 @@ function addMessage(role, text) {
   wrapper.appendChild(bubble);
   chatArea.appendChild(wrapper);
   wrapper.scrollIntoView({ block: 'start', behavior: 'instant' });
-}//This adds the chat to the visual screen in bubbles.
+  return wrapper;   // returned so callers can track/remove a specific message (used by provisional switch turns)
+}// renders a chat bubble on screen
 
 function showTyping() {
   document.getElementById('empty-state')?.remove();
@@ -582,40 +711,48 @@ async function extractPendingFile() {//does the actual upload+extraction; called
 }
 
 async function startSession() {
-  if (sessionMode === 'quiz') {
-    const startBtn = document.getElementById('start-btn');//reference to the start button so we can show loading state on it
-    if (pendingFile) {//only if a file is queued and not yet extracted
-      startBtn.disabled = true;//lock the button during extraction so it can't be double-clicked
-      startBtn.textContent = 'loading file...';//visible loading feedback on the button itself
-      try {
-        await extractPendingFile();//wait for extraction to finish and fill the textarea
-      } catch (err) {//if extraction fails
-        document.getElementById('upload-status').textContent = 'error: ' + err.message;//show the error
-        startBtn.disabled = false;//re-enable so the user can paste manually instead
-        startBtn.textContent = 'load & start quiz →';//restore the label
-        return;//stop here — don't start a session with no material
-      }
+  const startBtn = document.getElementById('start-btn');
+
+  // If a file is queued, extract it first so its text lands in the lesson textarea.
+  if (pendingFile) {
+    startBtn.disabled = true;
+    startBtn.textContent = 'loading file...';
+    try {
+      await extractPendingFile();
+    } catch (err) {
+      document.getElementById('upload-status').textContent = 'error: ' + err.message;
+      startBtn.disabled = false;
+      updateModeUI();   // restore the correct start label
+      return;
     }
-    const input = document.getElementById('lesson-input').value.trim();//read the textarea (now filled, whether by upload or paste)
-    if (!input) { alert('Please paste some lesson material first.'); return; }//still catches the truly-empty case
-    lessonMaterial = input;
-    difficulty = document.getElementById('difficulty-select').value;
-    questionCount = document.getElementById('question-count-select').value;
-    nativeLanguage = document.getElementById('native-lang-select').value;
-    lessonNumber = document.getElementById('lesson-number-input').value;
-    //upon starting, the selections of the drop downs get passed into these variables
-  } else {
-    const input = document.getElementById('scenario-input').value.trim();
-    if (!input) { alert('Please describe the conversation scenario first.'); return; }
-    lessonMaterial = input; // reusing this variable to carry the scenario into buildSystemPrompt
   }
+
+  // Read the shared inputs (both modes use the same lesson material + teacher instructions).
+  lessonMaterial = document.getElementById('lesson-input').value.trim();
+  teacherInstructions = document.getElementById('instructions-input').value.trim();
+  difficulty = document.getElementById('difficulty-select').value;
+  questionCount = document.getElementById('question-count-select').value;
+  nativeLanguage = document.getElementById('native-lang-select').value;
+  lessonNumber = document.getElementById('lesson-number-input').value;
+
+  // A session needs something to work from: lesson material OR teacher instructions.
+  if (!lessonMaterial && !teacherInstructions) {
+    alert('Add some lesson material, or write teacher instructions telling the bot what to do.');
+    startBtn.disabled = false;
+    return;
+  }
+
   clearError();
   conversationHistory = [];
   sessionActive = true;
+  committedMode = sessionMode;   // the mode we start in is the origin to return to
+  pendingSwitch = false;
+  provisionalNode = null;
+  switchCache = { quiz: null, conversation: null };
 
   document.getElementById('setup-indicator').classList.add('loaded');
-  document.getElementById('start-btn').disabled = true;
-  document.getElementById('start-btn').textContent = 'loaded ✓';
+  startBtn.disabled = true;
+  startBtn.textContent = 'loaded ✓';
   document.getElementById('user-input').disabled = false;
   document.getElementById('send-btn').disabled = false;
 
@@ -623,89 +760,124 @@ async function startSession() {
   await tutorRespond(null, true);
 }
 
-async function tutorRespond(userMessage, isFirst = false) {//usermessage is dead code - not used
+// Sends a turn to the API and renders the reply.
+//   isFirst  — cold start of a session (uses a kickoff instruction, no prior history)
+//   isSwitch — a mid-session mode flip (transitions gracefully; reply is provisional until engaged)
+async function tutorRespond(userMessage, isFirst = false, isSwitch = false) {
   if (isTyping) return;
   isTyping = true;
   document.getElementById('send-btn').disabled = true;
+  setToggleLocked(true);   // lock the mode toggle while the bot is generating
   showTyping();
-//the above checks if a prompt has already been submitted, so it shortcircuits any subsequent requests before the initial inquiry completes. isFirst is made true elsewhere before the first user input.
 
- const firstTurn = { role: 'user', content: sessionMode === 'quiz' ? 'Please start the quiz. Briefly introduce what will be covered and ask your first question.' : 'Please begin the conversation scenario naturally.' };//This loads the standard first question internal prompt into a variable
-  const messages = isFirst ? [firstTurn] : [...conversationHistory]; //variable defined by a condition decided by a ternary variable. This uses that first prompt variable only if it is the first turn, otherwise deploys the whole convo hist
+  // Leading synthetic "user" turns nudge the bot on cold starts and switches. They are stored in
+  // history (to keep roles alternating) but never shown on screen — same pattern for both.
+  const firstTurn = { role: 'user', content: sessionMode === 'quiz'
+    ? 'Please start the quiz. Briefly introduce what will be covered and ask your first question.'
+    : 'Please set up the conversation as instructed: name what the lesson covers, propose your character and my role and how you will help me practice, then offer the three numbered choices and wait for my reply.' };
+
+  const switchTurn = { role: 'user', content: sessionMode === 'quiz'
+    ? 'The student just switched to QUIZ mode mid-session. Do not restart from scratch. In one short line, acknowledge the switch, then begin a brief quiz drawing on what came up so far (including anything they struggled with), and ask your first question.'
+    : 'The student just switched to CONVERSATION mode mid-session. Do not show the setup menu and do not restart. In one short line, acknowledge the switch, then propose a quick role-play tied to what was just covered and begin.' };
+
+  // Assemble the message list, then strip internal flags (the API only accepts role + content).
+  let messages;
+  if (isFirst) messages = [firstTurn];
+  else if (isSwitch) messages = [...conversationHistory, switchTurn];
+  else messages = [...conversationHistory];
+  messages = messages.map(m => ({ role: m.role, content: m.content }));
 
   try {
     const response = await fetch('/api/chat', {
-      method: 'POST',//POST means we are sending, not just requesting data
-      headers: {
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01',
-      },      // sends POST request to Anthropic API with the conversation payload.
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: buildSystemPrompt(),
-        messages //This loads either all convo history or the template prompt if the first turn
-      })//JSON.stringify() converts the JS object into a JSON string because that's the format the API expects over the network.
-    });//the fetch sends metadata and payload(body:), awaits the raw HTTP response, then then stores it under the variable "response"
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, system: buildSystemPrompt(), messages })
+    });
+    const data = await response.json();
 
-    const data = await response.json();//This defines data as the json version of the data received, stored under "response" variable
-
-    if (!response.ok) {//status code check for failed HTTP response
+    if (!response.ok) {
       removeTyping();
       showError('API error ' + response.status + ': ' + (data?.error?.message || JSON.stringify(data)));
-      isTyping = false;
-      document.getElementById('send-btn').disabled = false;
-      return;
-    }// if request did not succeed, then show the details of error
+      if (isSwitch) revertFailedSwitch();
+      return finishTurn();
+    }
 
-    const replyText = data?.content?.[0]?.text; //defines reply text from properties of data
+    const replyText = data?.content?.[0]?.text;
     if (!replyText) {
       removeTyping();
       showError('No text in response. Raw: ' + JSON.stringify(data).slice(0, 300));
-      isTyping = false;
-      document.getElementById('send-btn').disabled = false;
-      return;
-    }//this resets things and provides an error message if there was no text in the response
+      if (isSwitch) revertFailedSwitch();
+      return finishTurn();
+    }
 
     removeTyping();
     clearError();
-    addMessage('assistant', replyText);
-//removes the three dots of typing, clears error msg; displays reponse message
-    if (isFirst) {
-      conversationHistory.push(firstTurn);
-    }
-    conversationHistory.push({ role: 'assistant', content: replyText });
+    const node = addMessage('assistant', replyText);
+    const assistantTurn = { role: 'assistant', content: replyText };
 
-  } catch (err) {//err is automatically populated when try throws an error
+    if (isFirst) {
+      conversationHistory.push(firstTurn, assistantTurn);
+    } else if (isSwitch) {
+      // Tag both turns so a return-to-origin can pop and cache them precisely.
+      switchTurn._mode = sessionMode;
+      assistantTurn._provisional = true;
+      assistantTurn._mode = sessionMode;
+      conversationHistory.push(switchTurn, assistantTurn);
+      pendingSwitch = true;
+      provisionalNode = node;
+    } else {
+      conversationHistory.push(assistantTurn);  // the user turn was already pushed by sendMessage
+    }
+  } catch (err) {
     removeTyping();
     showError('Fetch failed: ' + (err.message || String(err)) + '. Is the backend running? Run "node server.js" and open the localhost URL it prints — not the file directly.');
-  }// the "||" makes the left side of it the default and the right side the fall back.
+    if (isSwitch) revertFailedSwitch();
+  }
+  finishTurn();
+}
 
+// Re-enables input and the toggle after a turn finishes (success or failure).
+function finishTurn() {
   isTyping = false;
   document.getElementById('send-btn').disabled = false;
+  setToggleLocked(false);
   document.getElementById('user-input').focus();
-}//this reset works at the end of hte try, whether it succeeds or fails
+}
+
+// If a switch turn fails, snap the mode back to where the student was — never leave a half-switched state.
+function revertFailedSwitch() {
+  sessionMode = committedMode;
+  updateModeUI();
+}
 
 async function sendMessage() {
   if (!sessionActive || isTyping) return;
   const input = document.getElementById('user-input');
-  const text = input.value.trim();//saves user input to this variable
+  const text = input.value.trim();
   if (!text) return;
-  input.value = ''; //clears original user input
+  input.value = '';
   input.style.height = '48px';
   addMessage('user', text);
   conversationHistory.push({ role: 'user', content: text });
+
+  // Engaging commits the current mode: a provisional switch turn becomes permanent and the
+  // switch caches are cleared (the transcript has now changed, so cached turns are stale).
+  committedMode = sessionMode;
+  pendingSwitch = false;
+  provisionalNode = null;
+  switchCache = { quiz: null, conversation: null };
+
   await tutorRespond(text);
 }
 
-// The user-input textarea has an onkeydown event listener that fires 
+// The user-input textarea has an onkeydown event listener that fires
 // this function on every keypress, passing the full event object as e.
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
-} 
+}
 
 document.getElementById('user-input').addEventListener('input', function() {
   this.style.height = '48px';
