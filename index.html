@@ -377,9 +377,9 @@
           <div class="param-field" id="questions-field">
             <label for="question-count-select">questions</label>
             <select id="question-count-select">
-              <option value="10">10</option>
-              <option value="15" selected>15</option>
-              <option value="20">20</option>
+              <option value="8" selected>8</option>
+              <option value="12">12</option>
+              <option value="18">18</option>
             </select>
           </div>
           <div class="param-field">
@@ -400,8 +400,11 @@
             </select>
           </div>
           <div class="param-field">
-            <label for="lesson-number-input">lesson # <span class="param-note">coming soon</span></label>
-            <input type="text" id="lesson-number-input" placeholder="e.g. 16" disabled>
+            <label for="lesson-select">lesson</label>
+            <select id="lesson-select" onchange="handleLessonSelect(this.value)">
+              <option value="" selected>Choose a lesson</option>
+              <option value="16">Lesson 16 (DEMO)</option>
+            </select>
           </div>
         </div>
         <div class="param-field" style="margin-bottom:8px;">
@@ -451,7 +454,7 @@ let pendingFile = null;          // a chosen-but-not-yet-extracted file; extract
 // ---- Mode + quiz parameters ----
 let sessionMode = 'quiz';        // 'quiz' | 'conversation' — the orientation the bot runs each turn
 let difficulty = 'Intermediate';
-let questionCount = '15';
+let questionCount = '8';
 let nativeLanguage = 'Not specified';
 let lessonNumber = '';           // placeholder — captured but not yet wired to anything
 
@@ -464,6 +467,51 @@ let committedMode = 'quiz';      // the mode the student last actually engaged w
 let pendingSwitch = false;       // is the latest turn an unanswered mode switch?
 let provisionalNode = null;      // DOM node of the provisional switch message, so we can remove it precisely
 let switchCache = { quiz: null, conversation: null }; // cached switch turns, valid until the student engages
+
+// ---- Preloaded demo lesson ----
+// Embedded directly (not fetched) so selecting it is instant with zero network dependency — no
+// cold-start lag, no failed fetch, nothing that can hiccup mid-demo. Pre-extracted + cleaned the
+// same way the /api/extract-text pipeline cleans an uploaded PDF (strips headers/page numbers,
+// fixes extraction spacing artifacts, keeps vocab + grammar rules/examples intact).
+const DEMO_LESSONS = {
+  '16': `Vocabulary
+apple, banana, grape, orange, pineapple, strawberry, watermelon, coconut, lemon, cherry, lettuce, broccoli, onion, tomato, pepper, cucumber, corn, carrot, mushroom, potato, fruit, vegetable, juicy, sweet, sour, to offer, to prepare, to give, to eat
+
+Grammar: some and any (indefinite quantifiers)
+Some and any describe an amount or number of something when the exact amount is unknown. Use "some" in affirmative (positive) statements. Use "any" in negative statements.
+- I have some lettuce. / I don't have any mushrooms.
+- Rosa always gives me some apples. / She doesn't give me any oranges.
+- Robert wants some sweet corn. / He doesn't want any tomatoes.
+- The boys need some fruit. / They don't need any vegetables.
+
+Questions with some and any
+Both words can be used in questions. Use "some" when offering something, or when we expect the answer to be yes (e.g. "Do you want some?"). Use "any" when asking if something is there or available (e.g. "Do you have any?").
+- Do you want some watermelon? Yes, I want some watermelon. / No, I don't want any watermelon.
+- Does Jose eat peppers? Yes, he eats some peppers. / No, he doesn't eat any peppers.
+- Do they use onions in the soup? Yes, they use some onions. / No, they don't use any onions.
+- Are you looking for some cherries? Yes, I'm looking for some cherries. / No, I'm not looking for any cherries.
+- Do you have any carrots? Yes, I have some carrots. / No, I don't have any carrots.
+- Does he eat any vegetables? Yes, he eats peppers and cucumbers. / No, he doesn't eat any.
+
+Grammar: there is and there are
+Used with "to be" to say something exists or is present in a place or situation. Singular: there is. Plural: there are. Negative forms: "there is no" / "there isn't any" (singular); "there are no" / "there aren't any" (plural). Questions put "to be" before "there": "Is there...?" / "Are there...?"
+- There is lettuce. / There is no lettuce.
+- There is some broccoli. / There is not any broccoli.
+- There are sweet onions. / There are no red onions.
+- There are some green grapes. / There are not any purple grapes.
+- Is there corn for Tom? Yes, there is some corn for Tom. / No, there isn't any corn for Tom.
+- Are there any juicy oranges? Yes, there are some juicy oranges. / No, there aren't any juicy oranges.
+- Is there any lemon in the refrigerator? Yes, there is some lemon in there. / No, there is no lemon in the refrigerator.
+- Are there potatoes in the oven? Yes, there are potatoes in the oven. / No, there are no potatoes in there.`
+};
+
+// Fires when the lesson dropdown changes. Loads the matching preloaded lesson straight into the
+// textarea (Option A, same overwrite behavior as a file upload) — no fetch, no extraction step.
+function handleLessonSelect(value) {
+  if (!value || !DEMO_LESSONS[value]) return;
+  document.getElementById('lesson-input').value = DEMO_LESSONS[value];
+  document.getElementById('upload-status').textContent = '✓ loaded Lesson ' + value + ' (demo)';
+}
 
 // Clicking the switch itself flips to the other mode; the side labels still jump straight to a mode.
 function toggleMode() {
@@ -739,7 +787,7 @@ async function startSession() {
   difficulty = document.getElementById('difficulty-select').value;
   questionCount = document.getElementById('question-count-select').value;
   nativeLanguage = document.getElementById('native-lang-select').value;
-  lessonNumber = document.getElementById('lesson-number-input').value;
+  lessonNumber = document.getElementById('lesson-select').value;
 
   // A session needs something to work from: lesson material OR teacher instructions.
   if (!lessonMaterial && !teacherInstructions) {
